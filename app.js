@@ -334,8 +334,8 @@ function openAuth(){
   $('#auth').classList.remove('hidden');
 }
 async function doAuth(){
-  const email = $('#a-account').value.trim(), pass = $('#a-pass').value;
-  if(!email || !pass){ $('#a-msg').textContent='请填写邮箱和密码'; return; }
+  const email = $('#a-account').value.trim(), password = $('#a-pass').value;
+  if(!email || !password){ $('#a-msg').textContent='请填写邮箱和密码'; return; }
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ $('#a-msg').textContent='请输入正确的邮箱格式'; return; }
   $('#a-login').disabled = true;
   try{
