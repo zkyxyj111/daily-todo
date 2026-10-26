@@ -46,6 +46,7 @@ body{
 .pri.low{background:#34c759;}.pri.mid{background:#ff9500;}.pri.high{background:#ff3b30;}
 .time{font-size:13px;color:var(--sub);flex:0 0 auto;margin-left:8px;}
 .time.over{color:var(--red);font-weight:600;}
+.time.done-cn{color:var(--green);font-weight:500;}
 .right{display:flex;align-items:center;flex:0 0 auto;}
 .item.over{box-shadow:0 0 0 1px #ffd9d6, var(--shadow);}
 .done-area .item{opacity:.85;}
