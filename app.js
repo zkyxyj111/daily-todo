@@ -507,9 +507,19 @@ function buildICS(){
 }
 function downloadICS(){
   const ics = buildICS();
-  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '每日清单.ics'; a.click();
-  toast('日历文件已生成，导入手机日历即可（iOS 用文件App，安卓用日历导入）');
+  const file = new File([ics], '每日清单.ics', { type: 'text/calendar' });
+  // iOS Safari / 现代浏览器：用系统分享直接选「日历」导入（Safari 不支持 a.download 下载）
+  if(navigator.canShare && navigator.canShare({ files: [file] })){
+    navigator.share({ files: [file], title: '每日清单' })
+      .then(()=> toast('在分享面板里选「日历」即可完成导入'))
+      .catch(()=> {});
+    return;
+  }
+  // 兜底：安卓 / 桌面走普通下载
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+  a.download = '每日清单.ics'; document.body.appendChild(a); a.click(); a.remove();
+  toast('日历文件已生成：iOS 用「文件」App 打开并导入日历，安卓用日历导入');
 }
 function exportBackup(){
   const blob = new Blob([JSON.stringify({ tasks: state.tasks, history: state.history, settings: state.settings }, null, 2)], { type:'application/json' });
