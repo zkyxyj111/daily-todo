@@ -1,5 +1,5 @@
-/* Service Worker：离线缓存 + 推送通知 */
-const CACHE = 'todo-v1';
+/* Service Worker：仅做离线缓存（无后端推送） */
+const CACHE = 'todo-v2';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', (e) => {
@@ -10,6 +10,8 @@ self.addEventListener('activate', (e) => {
 });
 self.addEventListener('fetch', (e) => {
   if(e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  if(url.origin !== location.origin) return; // Supabase 请求不走缓存
   e.respondWith(
     caches.match(e.request).then(r => r || fetch(e.request).then(resp => {
       const copy = resp.clone();
@@ -17,18 +19,4 @@ self.addEventListener('fetch', (e) => {
       return resp;
     }).catch(() => caches.match('./index.html')))
   );
-});
-self.addEventListener('push', (e) => {
-  let data = { title: '每日清单', body: '到时间了' };
-  try { data = Object.assign(data, e.data ? e.data.json() : {}); } catch {}
-  e.waitUntil(self.registration.showNotification(data.title, {
-    body: data.body, icon: './icon.svg', badge: './icon.svg', tag: data.tag || 'todo',
-  }));
-});
-self.addEventListener('notificationclick', (e) => {
-  e.notification.close();
-  e.waitUntil(clients.matchAll({ type: 'window' }).then(list => {
-    for(const c of list) if('focus' in c) return c.focus();
-    return clients.openWindow('./');
-  }));
 });
