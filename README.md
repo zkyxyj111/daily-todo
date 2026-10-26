@@ -1,97 +1,102 @@
-# 每日工作清单 · 使用与部署说明
+# 每日工作清单 · 无服务器版（部署与说明）
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/zkyxyj111/daily-todo)
+极简每日清单：到点闹钟提醒（系统日历 .ics）、日/周/月循环自动滚动、完成划线+隐藏、逾期标红、双手机云同步、华为手环振动。
 
-极简每日清单 PWA：到点闹钟提醒（Web Push + 系统日历兜底）、日/周/月循环自动滚动、
-完成后划线并默认隐藏、逾期标红累计、连续打卡统计，双手机（iOS / 安卓）云同步。
+**本版本已改为「无服务器」架构**：纯静态网页 + Supabase 云数据库，无需自建后端、无需绑定任何信用卡。
 
-## 一、文件结构
+---
 
-```
-/workspace
-├── index.html        前端主页面
-├── style.css         样式（浅色/深色主题）
-├── app.js            前端逻辑（清单、循环、统计、同步、推送订阅）
-├── manifest.json     PWA 配置（可安装到桌面）
-├── sw.js             Service Worker（离线缓存 + 推送通知）
-├── icon.svg          应用图标
-├── seed.html         演示数据入口（会重置本地数据，仅演示用）
-├── render.yaml       Render 一键部署配置
-└── backend/
-    ├── server.js     后端：账号同步 + Web Push 调度 + .ics 日历订阅
-    └── package.json
-```
+## 一、你已完成的（不用再动）
 
-## 二、本地试跑
+- ✅ GitHub 仓库：`https://github.com/zkyxyj111/daily-todo`
+- ✅ Supabase 项目已创建（地址 `https://sjefpfgprwruiarifdnn.supabase.co`）
 
-```bash
-cd backend && node server.js
-# 浏览器打开 http://localhost:3000
-# 想看示例数据：打开 http://localhost:3000/seed.html
-```
+---
 
-## 三、准备 Supabase 数据存储（免费、永久保存）
+## 二、在 Supabase 建一张数据表（一次性，约 1 分钟）
 
-后端默认使用 Supabase 云数据库，你的项目已创建好（`sjefpfgprwruiarifdnn`）。
-只需补一张数据表：
-
-1. 打开 Supabase 项目 → 左侧 **SQL Editor** → 点 **New query**
-2. 粘贴下面这段 SQL → 点 **Run**：
+1. 打开你的 Supabase 项目 → 左侧 **SQL Editor** → **New query**
+2. 粘贴下面这段 → 点 **Run**：
 
 ```sql
-create table if not exists app_data (
-  key text primary key,
-  data jsonb not null default '{}'::jsonb
+create table if not exists public.user_data (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  tasks jsonb not null default '[]'::jsonb,
+  history jsonb not null default '{}'::jsonb,
+  updated_at timestamptz default now()
 );
-grant usage on schema public to anon, authenticated, service_role;
-grant all privileges on table app_data to anon, authenticated, service_role;
-alter table app_data disable row level security;
+alter table public.user_data enable row level security;
+drop policy if exists "own row" on public.user_data;
+create policy "own row" on public.user_data
+  for all to anon, authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 ```
 
-建好后，任务数据就存在云端，**重启 / 换机 / 重装都不丢**。
+3. （重要）关闭注册邮箱验证：左侧 **Authentication → Providers → Email**，
+   把 **Confirm email** 关掉。否则首次注册后必须验证邮箱才能登录。
 
-## 四、部署到 Render（点一下，约 2 分钟）
+> 验证建表是否成功：再开一个 New query，跑 `select * from user_data;` 应返回空表、不报错。
 
-点本仓库 README 顶部的 **「Deploy to Render」** 按钮 → 用 GitHub 授权登录 Render →
-一路点「Create」即可。仓库已自带 `render.yaml`，无需手动填启动命令。
+---
 
-创建后到 **Settings → Environment**，设置两个环境变量：
+## 三、开启 GitHub Pages（静态托管，免卡）
 
-| 变量名 | 值 |
+1. 打开 `https://github.com/zkyxyj111/daily-todo` → **Settings → Pages**
+2. **Build and deployment → Source** 选 **Deploy from a branch**
+3. **Branch** 选 `main` / 目录 `/(root)` → **Save**
+4. 等 1–2 分钟，你会得到网址：`https://zkyxyj111.github.io/daily-todo/`
+
+（国内访问 GitHub Pages 可能偏慢，但你的关键闹钟走手机本地日历，不受此影响。）
+
+---
+
+## 四、两部手机使用
+
+1. 两部手机都用浏览器打开上面的 Pages 网址
+   - **iPhone**：Safari 打开 → 分享 → **添加到主屏幕**
+   - **安卓**：Chrome 打开 → 菜单 → **安装应用 / 添加到主屏幕**
+2. 都进 `☰ 设置 → 账号`，**用同一个邮箱登录**（首次即自动注册），清单自动双向同步
+3. **设置日历闹钟**：`☰ → 日历闹钟(.ics) → 下载导入`
+   - iOS：把下载的 `每日清单.ics` 用「文件」App 打开 → 导入到日历
+   - 安卓：用日历 App 导入该文件
+   - 导入后，到点**手机响 + 手环振动**（系统日历通知会经蓝牙转发给手环）
+4. 任务有变动时，重新点一次「下载导入」刷新日历即可
+
+---
+
+## 五、功能说明
+
+| 功能 | 说明 |
 |---|---|
-| `SUPABASE_URL` | `https://sjefpfgprwruiarifdnn.supabase.co` |
-| `SUPABASE_KEY` | `sb_publishable_0CSTCrFS9bUP5kTmyTZ4Dw_zsUzG95x` |
+| 添加任务 | `＋` → 支持自然语言：`明早9点 吃药` / `每周一 10点 开会` / `每月1号 交房租` |
+| 完成 | 点左边圆圈 → 划线变灰、自动隐藏；循环任务滚到下一周期 |
+| 显示已完成 | 底部「显示已完成 N 项」点开回看，再点收起 |
+| 逾期 | 过点没做自动标红、不消失、累计显示 |
+| 日/周/月 | 每天同时刻 / 指定星期几 / 指定日期（月末取当月最后一天） |
+| 统计 | `☰ → 完成统计`：今日完成率、连续打卡、近 7 天 |
+| 手环振动 | 由系统日历通知经蓝牙转发，无需单独对接 |
+| 应用内提醒 | `☰ → 应用内提醒` 授权后，App 打开时到点弹系统通知（关 App 不触发，靠日历兜底） |
 
-> **免费版须知**：15 分钟没人访问会「休眠」，休眠期间**到点推送(Web Push)不触发**；
-> 但 **.ics 系统日历订阅**是手机本地闹钟，永远准时。建议两部手机都订阅 .ics 作为保底提醒。
+---
 
-## 五、两部手机怎么用
+## 六、数据与安全
 
-1. **iPhone**：Safari 打开网址 → 分享 → 「添加到主屏幕」→ 从主屏幕打开
-   （iOS 16.4+ 才支持 PWA 推送，添加到主屏幕是必要步骤）
-2. **安卓**：Chrome 打开网址 → 菜单 → 「添加到主屏幕 / 安装应用」
-3. 两部手机都进入 `☰ 设置 → 账号`，**登录同一个邮箱+密码**
-   （首次登录即自动注册），清单自动双向同步
-4. `☰ 设置 → 开启闹钟提醒`，允许通知权限（两部都开）
+- 任务存于你的 Supabase 免费库，登录同一邮箱即恢复，换机不丢
+- 前端只用 Supabase 的 **anon 公钥**，配合行级安全（RLS）策略，每个用户只能读写自己的数据
+- 想备份：`☰ → 数据备份 → 导出 JSON`
 
-## 六、华为手环振动
+---
 
-手环通过「手机系统通知 → 华为运动健康转发」振动，无需额外开发：
+## 技术架构
 
-- 手机安装/打开**华为运动健康**，蓝牙连接手环
-- 运动健康 → 设备 → 消息通知 / 通知提醒 → 开启，并允许浏览器（Safari/Chrome）的通知转发
-- 工作台到点推系统通知 → 手机响 + **手环同步振动**（默认仅到点到一次）
+```
+浏览器(静态页) ──Supabase JS REST/Auth──▶ Supabase(免费云库)
+        │
+        └──生成 .ics 日历文件──▶ 手机系统日历──▶ 手环振动
+```
 
-## 七、日历兜底（.ics）
-
-`☰ 设置 → 日历订阅(.ics) → 复制链接`：
-
-- **iPhone**：日历 App → 账户 → 添加订阅日历 → 粘贴链接（系统日历到点也会响 + 手环振）
-- **安卓**：导入 .ics 或用支持订阅的日历应用
-
-## 八、日常功能速览
-
-- 点 `☐` 完成 → 划线并隐藏；底部「显示已完成 N 项」可展开回看（循环任务下周期自动回到清单）
-- 逾期任务标红、不消失、累计显示
-- 添加任务支持自然语言：`明早9点 吃药`、`每周一 10点 开会`、`每月1号 交房租`
-- `☰` 内可设：提醒提前量、勿扰时段、深色主题、数据导出备份
+前端：`index.html` `style.css` `app.js` `sw.js`（离线缓存/可安装）
+托管：GitHub Pages（静态，免卡）
+数据/账号：Supabase（免费，无需信用卡）
+提醒：客户端生成的 `.ics`（系统级，关 App 也响）
