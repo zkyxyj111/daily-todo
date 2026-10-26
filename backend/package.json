@@ -1,0 +1,8 @@
+{
+  "name": "daily-todo-backend",
+  "version": "1.0.0",
+  "description": "每日工作清单后端：账号同步 + Web Push 提醒 + .ics 日历订阅",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=16" }
+}
