@@ -1,0 +1,22 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script>
+const t = (h,m)=>{ const d=new Date(); d.setHours(h,m,0,0); return d.getTime(); };
+const nextFri = ()=>{ const d=new Date(); d.setHours(17,0,0,0); while(d.getDay()!==5) d.setDate(d.getDate()+1); if(d.getTime()<=Date.now()) d.setDate(d.getDate()+7); return d.getTime(); };
+const mnext = ()=>{ const d=new Date(); d.setMonth(d.getMonth()+1,1); d.setHours(9,0,0,0); return d.getTime(); };
+const today = new Date().toISOString().slice(0,10);
+const tasks = [
+  {id:'a1',title:'晨间喝水',dueTs:t(7,0),repeat:'day',weekday:'1',monthday:'1',priority:'none',note:'',doneDate:today,lastDoneTs:Date.now()},
+  {id:'a2',title:'吃降压药',dueTs:t(9,0),repeat:'day',weekday:'1',monthday:'1',priority:'high',note:'随餐',doneDate:null,lastDoneTs:null},
+  {id:'a3',title:'回复邮件',dueTs:t(10,0),repeat:'none',weekday:'1',monthday:'1',priority:'none',note:'',doneDate:today,lastDoneTs:Date.now()},
+  {id:'a4',title:'提交周报',dueTs:nextFri(),repeat:'week',weekday:'5',monthday:'1',priority:'mid',note:'',doneDate:null,lastDoneTs:null},
+  {id:'a5',title:'交房租',dueTs:mnext(),repeat:'month',weekday:'1',monthday:'1',priority:'high',note:'转账',doneDate:null,lastDoneTs:null},
+  {id:'a6',title:'健身',dueTs:t(20,0),repeat:'day',weekday:'1',monthday:'1',priority:'none',note:'',doneDate:null,lastDoneTs:null},
+  {id:'a7',title:'吃维生素',dueTs:t(12,0),repeat:'day',weekday:'1',monthday:'1',priority:'low',note:'',doneDate:null,lastDoneTs:null},
+  {id:'a8',title:'读书',dueTs:t(22,0),repeat:'day',weekday:'1',monthday:'1',priority:'none',note:'',doneDate:null,lastDoneTs:null},
+  {id:'a9',title:'散步',dueTs:t(19,0),repeat:'day',weekday:'1',monthday:'1',priority:'none',note:'',doneDate:null,lastDoneTs:null},
+  {id:'a10',title:'记账',dueTs:t(23,0),repeat:'day',weekday:'1',monthday:'1',priority:'none',note:'',doneDate:today,lastDoneTs:Date.now()},
+];
+localStorage.setItem('tasks', JSON.stringify(tasks));
+localStorage.setItem('settings', JSON.stringify({remind:'none',snooze:true,dndStart:'22:00',dndEnd:'08:00',theme:'light',hideDone:true}));
+localStorage.setItem('history', JSON.stringify({[today]:{due:10,done:3}}));
+location.href='index.html';
+</script></body></html>
