@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#f5f5f7" id="theme-color">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="每日清单">
+<title>每日工作清单</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- 主屏：清单 -->
+  <section id="list-view" class="view">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="date" id="date-label">—</div>
+        <div class="stats" id="stats-line"></div>
+      </div>
+      <button class="icon-btn" id="btn-menu" aria-label="菜单">☰</button>
+    </header>
+
+    <ul id="task-list" class="task-list"></ul>
+
+    <div class="show-done hidden" id="show-done">显示已完成 <span id="done-count">0</span> 项 ▴</div>
+    <ul id="done-list" class="task-list done-area hidden"></ul>
+
+    <button class="add-btn" id="btn-add">＋ 添加任务</button>
+  </section>
+
+  <!-- 设置 -->
+  <section id="settings-view" class="view hidden">
+    <header class="topbar">
+      <button class="icon-btn" id="btn-back">‹</button>
+      <div class="title-center">设置</div>
+      <div style="width:32px"></div>
+    </header>
+    <div class="panel" id="settings-panel"></div>
+  </section>
+
+  <!-- 统计 -->
+  <section id="stats-view" class="view hidden">
+    <header class="topbar">
+      <button class="icon-btn" id="btn-back2">‹</button>
+      <div class="title-center">统计</div>
+      <div style="width:32px"></div>
+    </header>
+    <div class="panel" id="stats-panel"></div>
+  </section>
+
+</div>
+
+<!-- 添加/编辑 弹窗 -->
+<div id="editor" class="sheet hidden">
+  <div class="sheet-mask" id="editor-mask"></div>
+  <div class="sheet-body">
+    <h3 id="editor-title">添加任务</h3>
+    <label class="fld">任务名称
+      <input id="f-title" type="text" placeholder="如：吃降压药 / 明早9点 吃药" autocomplete="off">
+    </label>
+    <div class="row">
+      <label class="fld">时间
+        <input id="f-time" type="time" value="09:00">
+      </label>
+      <label class="fld">优先级
+        <select id="f-priority">
+          <option value="none">无</option>
+          <option value="low">低</option>
+          <option value="mid">中</option>
+          <option value="high">高</option>
+        </select>
+      </label>
+    </div>
+    <label class="fld">重复
+      <select id="f-repeat">
+        <option value="none">不重复</option>
+        <option value="day">每天</option>
+        <option value="week">每周</option>
+        <option value="month">每月</option>
+      </select>
+    </label>
+    <label class="fld hidden" id="f-week-wrap">星期
+      <select id="f-weekday">
+        <option value="0">周日</option><option value="1">周一</option><option value="2">周二</option>
+        <option value="3">周三</option><option value="4">周四</option><option value="5">周五</option><option value="6">周六</option>
+      </select>
+    </label>
+    <label class="fld hidden" id="f-month-wrap">日期（每月几号）
+      <input id="f-monthday" type="number" min="1" max="31" value="1">
+    </label>
+    <label class="fld">备注
+      <textarea id="f-note" rows="2" placeholder="可选"></textarea>
+    </label>
+    <div class="sheet-actions">
+      <button class="btn-ghost" id="f-delete" hidden>删除</button>
+      <div class="spacer"></div>
+      <button class="btn-cancel" id="f-cancel">取消</button>
+      <button class="btn-primary" id="f-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 账号 弹窗 -->
+<div id="auth" class="sheet hidden">
+  <div class="sheet-mask" id="auth-mask"></div>
+  <div class="sheet-body">
+    <h3>账号登录</h3>
+    <p class="hint">绑定邮箱/手机，换机登录即可恢复全部数据（双手机同步）。</p>
+    <label class="fld">邮箱或手机号
+      <input id="a-account" type="text" placeholder="you@example.com" autocomplete="off">
+    </label>
+    <label class="fld">密码
+      <input id="a-pass" type="password" placeholder="密码" autocomplete="off">
+    </label>
+    <div class="sheet-actions">
+      <div class="spacer"></div>
+      <button class="btn-cancel" id="a-cancel">取消</button>
+      <button class="btn-primary" id="a-login">登录 / 注册</button>
+    </div>
+    <p class="msg" id="a-msg"></p>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
