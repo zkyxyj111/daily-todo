@@ -1,22 +1,30 @@
-/* 每日工作清单 — 前端逻辑 */
+/* 每日工作清单 — 前端逻辑（无服务器版：直连 Supabase） */
 'use strict';
-const API = '/api';
+
+/* ===== Supabase 连接（你的项目，已验证可用） ===== */
+const SB_URL  = 'https://sjefpfgprwruiarifdnn.supabase.co';
+const SB_ANON = 'sb_publishable_0CSTCrFS9bUP5kTmyTZ4Dw_zsUzG95x';
+const AUTH = SB_URL + '/auth/v1';
+const REST = SB_URL + '/rest/v1';
+
 const $ = (s) => document.querySelector(s);
 const store = {
   get(k, d){ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch{ return d; } },
-  set(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
 const pad = (n) => String(n).padStart(2,'0');
 const ymd = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
 const todayYmd = () => ymd(Date.now());
 const WEEK = ['周日','周一','周二','周三','周四','周五','周六'];
+const BYDAY = ['SU','MO','TU','WE','TH','FR','SA'];
 
 let state = {
   tasks: [],
-  history: {},           // {date:{due,done}}
-  settings: { remind:'none', snooze:true, dndStart:'22:00', dndEnd:'08:00', theme:'light', hideDone:true },
-  auth: null,            // {token, account}
-  pushEnabled: false,
+  history: {},
+  settings: { remind:'none', dndStart:'22:00', dndEnd:'08:00', theme:'light', hideDone:true },
+  session: null,     // { access_token, refresh_token, user_id, email }
+  savedAt: 0,
+  _showDone: false,
 };
 
 /* ---------- 时间 / 循环 ---------- */
@@ -47,6 +55,32 @@ function nextOccurrence(dueTs, t){
   }
   return d.getTime();
 }
+/* 从当前起算的下一个到期时间，用于日历 DTSTART */
+function nextDue(t){
+  const now = Date.now();
+  const h = new Date(t.dueTs).getHours(), m = new Date(t.dueTs).getMinutes();
+  if(t.repeat === 'day'){
+    let d = new Date(); d.setHours(h, m, 0, 0);
+    if(d.getTime() <= now) d.setDate(d.getDate() + 1);
+    return d.getTime();
+  }
+  if(t.repeat === 'week'){
+    let cur = new Date(); cur.setHours(h, m, 0, 0);
+    while(cur.getDay() !== Number(t.weekday) || cur.getTime() <= now) cur.setDate(cur.getDate() + 1);
+    return cur.getTime();
+  }
+  if(t.repeat === 'month'){
+    let cur = new Date(); cur.setDate(1); cur.setHours(h, m, 0, 0);
+    for(let i = 0; i < 60; i++){
+      const day = Math.min(Number(t.monthday), lastDayOfMonth(cur.getFullYear(), cur.getMonth()));
+      const cand = new Date(cur.getFullYear(), cur.getMonth(), day, h, m, 0, 0);
+      if(cand.getTime() > now) return cand.getTime();
+      cur.setMonth(cur.getMonth() + 1);
+    }
+    return null;
+  }
+  return t.dueTs;
+}
 
 /* ---------- 任务判定 ---------- */
 function isDoneToday(t){ return t.doneDate === todayYmd(); }
@@ -66,20 +100,19 @@ function render(){
   const dlist = $('#done-list'); dlist.innerHTML = '';
   for(const t of done) dlist.appendChild(taskEl(t, true));
 
-  // 已完成默认隐藏：hideDone 为 true 且未手动展开时隐藏
   const showDone = !state.settings.hideDone || state._showDone;
   dlist.classList.toggle('hidden', !showDone);
   const sd = $('#show-done');
   sd.classList.toggle('hidden', done.length === 0);
   sd.textContent = (showDone ? '收起已完成 ▾ ' : '显示已完成 ') + done.length + ' 项' + (showDone ? '' : ' ▴');
 
-  // 统计行
   const total = state.tasks.length;
   const doneToday = done.length;
   const streak = calcStreak();
   $('#date-label').textContent = `${new Date().getMonth()+1}月${new Date().getDate()}日 ${WEEK[new Date().getDay()]}`;
   const hiddenMark = (state.settings.hideDone && !state._showDone) ? '　·　已隐藏 ✓' : '';
-  $('#stats-line').innerHTML = `今日 <b>${doneToday}/${total}</b> 已完成　<span style="color:#ff9f0a">🔥 连续 ${streak} 天</span>${hiddenMark}`;
+  const syncMark = state.session ? '　·　已同步 ☁' : '';
+  $('#stats-line').innerHTML = `今日 <b>${doneToday}/${total}</b> 已完成　<span style="color:#ff9f0a">🔥 连续 ${streak} 天</span>${hiddenMark}${syncMark}`;
 }
 
 function taskEl(t, isDone){
@@ -111,14 +144,13 @@ function taskEl(t, isDone){
 function toggleDone(t){
   const now = Date.now();
   if(isDoneToday(t)){
-    t.doneDate = null;                 // 取消完成
+    t.doneDate = null;
   } else {
     t.doneDate = todayYmd();
     t.lastDoneTs = now;
     if(t.repeat !== 'none'){ t.dueTs = nextOccurrence(t.dueTs, t); }
   }
-  recordHistory();
-  save(); render(); pushSync();
+  recordHistory(); persist(); render(); scheduleSave();
 }
 
 /* ---------- 历史 / 统计 ---------- */
@@ -181,11 +213,11 @@ function saveEditor(){
       ...data, dueTs: firstDue(time, data), doneDate: null, lastDoneTs: null, createdAt: Date.now(),
     });
   }
-  recordHistory(); save(); render(); pushSync();
+  recordHistory(); persist(); render(); scheduleSave();
   $('#editor').classList.add('hidden');
 }
 function deleteEditing(){
-  if(editing){ state.tasks = state.tasks.filter(t => t !== editing); recordHistory(); save(); render(); pushSync(); }
+  if(editing){ state.tasks = state.tasks.filter(t => t !== editing); recordHistory(); persist(); render(); scheduleSave(); }
   $('#editor').classList.add('hidden');
 }
 
@@ -212,7 +244,6 @@ function firstDue(time, data){
 
 /* ---------- 自然语言解析 ---------- */
 function parseNatural(text){
-  // 返回 {title, time, repeat, weekday, monthday} 或 null（部分）
   let title = text, time = '09:00', repeat = 'none', weekday = '1', monthday = '1';
   const wmap = {'日':0,'天':0,'一':1,'二':2,'三':3,'四':4,'五':5,'六':6};
   if(/每天|每日/.test(text)) repeat = 'day';
@@ -232,139 +263,256 @@ function parseNatural(text){
   return { title: title || text, time, repeat, weekday, monthday };
 }
 
-/* ---------- 同步（后端） ---------- */
-async function pushSync(){
-  if(!state.auth) return;
+/* =========================================================
+   同步层：直连 Supabase（无后端）
+   ========================================================= */
+function authHeaders(extra){ return Object.assign({'apikey': SB_ANON, 'Authorization': 'Bearer ' + (state.session ? state.session.access_token : '')}, extra || {}); }
+
+async function tryRefresh(){
+  if(!state.session) return;
   try{
-    await fetch(API + '/tasks', { method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ token: state.auth.token, tasks: state.tasks, history: state.history }) });
-  }catch(e){ /* 离线，下次同步 */ }
-}
-async function pullSync(){
-  if(!state.auth) return;
-  try{
-    const r = await fetch(API + '/tasks?token=' + encodeURIComponent(state.auth.token));
+    const r = await fetch(AUTH + '/token?grant_type=refresh_token', {
+      method:'POST', headers:{'apikey':SB_ANON,'Content-Type':'application/json'},
+      body: JSON.stringify({ refresh_token: state.session.refresh_token })
+    });
     const j = await r.json();
-    if(j.tasks){ state.tasks = j.tasks; state.history = j.history || {}; save(); render(); }
+    if(j.access_token){
+      state.session.access_token = j.access_token;
+      if(j.refresh_token) state.session.refresh_token = j.refresh_token;
+      persist();
+    }
   }catch(e){}
 }
 
-/* ---------- 设置 / 账号 / 推送 ---------- */
-function openSettings(){
-  const p = $('#settings-panel'); p.innerHTML = '';
-  const acc = state.auth ? state.auth.account : '未登录';
-  const row = (label, val, fn) => { const d=document.createElement('div'); d.className='row-item'; d.innerHTML=`<span class="label">${label}</span>`; const b=document.createElement('button'); b.className='btn-link'; b.textContent=val; b.onclick=fn; d.appendChild(b); return d; };
-  const card = document.createElement('div'); card.className='card';
-  card.appendChild(row('账号', acc, ()=> state.auth ? logout() : openAuth()));
-  if(state.auth) card.appendChild(row('退出登录', '退出', logout));
-  p.appendChild(card);
-
-  const c2 = document.createElement('div'); c2.className='card';
-  const remindSel = mkSelect(['none|仅到点到','5|提前5分钟','15|提前15分钟','30|提前30分钟'], state.settings.remind);
-  c2.appendChild(labeled('提醒方式', remindSel, v=>{ state.settings.remind=v; save(); }));
-  const dndS = mkTime(state.settings.dndStart), dndE = mkTime(state.settings.dndEnd);
-  const dnd = document.createElement('div'); dnd.className='row-item'; dnd.innerHTML='<span class="label">勿扰时段</span>';
-  const wr = document.createElement('div'); wr.style.display='flex'; wr.style.gap='6px'; wr.appendChild(dndS); wr.appendChild(dndE); dnd.appendChild(wr);
-  dndS.onchange = ()=>{ state.settings.dndStart=dndS.value; save(); }; dndE.onchange=()=>{ state.settings.dndEnd=dndE.value; save(); };
-  c2.appendChild(dnd);
-  const themeSel = mkSelect(['light|浅色','dark|深色'], state.settings.theme);
-  c2.appendChild(labeled('主题', themeSel, v=>{ state.settings.theme=v; applyTheme(); save(); }));
-  p.appendChild(c2);
-
-  const c3 = document.createElement('div'); c3.className='card';
-  c3.appendChild(row('开启闹钟提醒', state.pushEnabled?'已开启':'去开启', enablePush));
-  c3.appendChild(row('日历订阅(.ics)', '复制链接', copyCalendarLink));
-  c3.appendChild(row('数据备份', '导出JSON', exportBackup));
-  p.appendChild(c3);
-
-  const c4 = document.createElement('div'); c4.className='card';
-  c4.appendChild(row('完成统计', '查看', ()=>{ showView('stats-view'); renderStats(); }));
-  p.appendChild(c4);
-
-  showView('settings-view');
+async function pullData(){
+  if(!state.session) return;
+  try{
+    let r = await fetch(REST + '/user_data?select=*&user_id=eq.' + encodeURIComponent(state.session.user_id), { headers: authHeaders() });
+    if(r.status === 401){ await tryRefresh(); r = await fetch(REST + '/user_data?select=*&user_id=eq.' + encodeURIComponent(state.session.user_id), { headers: authHeaders() }); }
+    const rows = await r.json();
+    if(Array.isArray(rows) && rows[0]){
+      const row = rows[0];
+      const remoteTs = row.updated_at ? Date.parse(row.updated_at) : 0;
+      if(remoteTs > (state.savedAt || 0)){
+        state.tasks = row.tasks || [];
+        state.history = row.history || {};
+        store.set('tasks', state.tasks); store.set('history', state.history);
+        render();
+      }
+    }
+  }catch(e){}
 }
-function mkSelect(opts, val){
-  const s = document.createElement('select'); s.style.cssText='background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:14px;';
-  for(const o of opts){ const [v,t]=o.split('|'); const op=document.createElement('option'); op.value=v; op.textContent=t; if(v===val)op.selected=true; s.appendChild(op); }
-  return s;
-}
-function mkTime(v){ const i=document.createElement('input'); i.type='time'; i.value=v; i.style.cssText='background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-size:14px;'; return i; }
-function labeled(label, el, fn){ const d=document.createElement('div'); d.className='row-item'; const l=document.createElement('span'); l.className='label'; l.textContent=label; d.appendChild(l); el.onchange=()=>fn(el.value); d.appendChild(el); return d; }
 
+let saveTimer;
+function scheduleSave(){ clearTimeout(saveTimer); saveTimer = setTimeout(saveData, 400); }
+async function saveData(){
+  store.set('tasks', state.tasks); store.set('history', state.history);
+  state.savedAt = Date.now();
+  if(!state.session) return;
+  const body = JSON.stringify({
+    user_id: state.session.user_id,
+    tasks: state.tasks,
+    history: state.history,
+    updated_at: new Date(state.savedAt).toISOString(),
+  });
+  try{
+    let r = await fetch(REST + '/user_data?on_conflict=user_id', {
+      method:'POST',
+      headers: Object.assign(authHeaders(), {'Content-Type':'application/json', 'Prefer':'resolution=merge-duplicates, return=minimal'}),
+      body
+    });
+    if(r.status === 401){ await tryRefresh(); await fetch(REST + '/user_data?on_conflict=user_id', {
+      method:'POST',
+      headers: Object.assign(authHeaders(), {'Content-Type':'application/json', 'Prefer':'resolution=merge-duplicates, return=minimal'}),
+      body }); }
+  }catch(e){}
+}
+
+/* ---------- 账号（Supabase Auth） ---------- */
 function openAuth(){
   $('#a-msg').textContent=''; $('#a-account').value=''; $('#a-pass').value='';
   $('#auth').classList.remove('hidden');
 }
 async function doAuth(){
-  const account = $('#a-account').value.trim(), pass = $('#a-pass').value;
-  if(!account || !pass){ $('#a-msg').textContent='请填写账号和密码'; return; }
+  const email = $('#a-account').value.trim(), pass = $('#a-pass').value;
+  if(!email || !pass){ $('#a-msg').textContent='请填写邮箱和密码'; return; }
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ $('#a-msg').textContent='请输入正确的邮箱格式'; return; }
+  $('#a-login').disabled = true;
   try{
-    const r = await fetch(API + '/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({account, pass}) });
-    const j = await r.json();
-    if(j.token){ state.auth = { token:j.token, account }; save(); $('#auth').classList.add('hidden'); toast('已登录'); await pullSync(); openSettings(); }
-    else $('#a-msg').textContent = j.error || '登录失败';
-  }catch(e){ $('#a-msg').textContent='网络错误'; }
+    let j = await (await fetch(AUTH + '/token?grant_type=password', {
+      method:'POST', headers:{'apikey':SB_ANON,'Content-Type':'application/json'},
+      body: JSON.stringify({ email, password })
+    })).json();
+    if(!j.access_token){
+      // 首次：注册
+      const sj = await (await fetch(AUTH + '/signup', {
+        method:'POST', headers:{'apikey':SB_ANON,'Content-Type':'application/json'},
+        body: JSON.stringify({ email, password })
+      })).json();
+      if(sj.error){ $('#a-msg').textContent = (sj.error.message || '注册失败') + '（若提示需验证邮箱，请在 Supabase 后台关闭“确认邮箱”）'; return; }
+      j = await (await fetch(AUTH + '/token?grant_type=password', {
+        method:'POST', headers:{'apikey':SB_ANON,'Content-Type':'application/json'},
+        body: JSON.stringify({ email, password })
+      })).json();
+    }
+    if(j.access_token){
+      state.session = { access_token:j.access_token, refresh_token:j.refresh_token, user_id:(j.user && j.user.id) || j.user_id, email };
+      persist();
+      $('#auth').classList.add('hidden'); toast('已登录');
+      await pullData(); render(); openSettings();
+    } else {
+      $('#a-msg').textContent = (j.error && j.error.message) || '登录失败';
+    }
+  }catch(e){ $('#a-msg').textContent = '网络错误'; }
+  finally{ $('#a-login').disabled = false; }
 }
-function logout(){ state.auth=null; save(); toast('已退出'); openSettings(); }
+function logout(){ state.session = null; persist(); toast('已退出'); openSettings(); }
 
-async function enablePush(){
-  if(!('serviceWorker' in navigator) || !('PushManager' in window)){ toast('当前浏览器不支持推送'); return; }
-  const perm = await Notification.requestPermission();
-  if(perm !== 'granted'){ toast('需允许通知权限'); return; }
-  try{
-    const reg = await navigator.serviceWorker.ready;
-    const vapid = await (await fetch(API + '/vapid')).text();
-    const sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: urlBase64ToUint8(vapid) });
-    if(state.auth) await fetch(API + '/sub', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ token: state.auth.token, sub }) });
-    state.pushEnabled = true; save(); toast('闹钟提醒已开启'); openSettings();
-  }catch(e){ toast('推送订阅失败'); }
+/* ---------- 设置 / 日历 / 提醒 ---------- */
+function openSettings(){
+  const p = $('#settings-panel'); p.innerHTML = '';
+  const acc = state.session ? state.session.email : '未登录';
+  const card = document.createElement('div'); card.className = 'card';
+  card.appendChild(row('账号', acc, ()=> state.session ? logout() : openAuth()));
+  if(state.session) card.appendChild(row('退出登录', '退出', logout));
+  p.appendChild(card);
+
+  const c2 = document.createElement('div'); c2.className = 'card';
+  const remindSel = mkSelect(['none|仅到时间','5|提前5分钟','15|提前15分钟','30|提前30分钟'], state.settings.remind);
+  c2.appendChild(labeled('日历提前量', remindSel, v=>{ state.settings.remind = v; persist(); }));
+  const dndS = mkTime(state.settings.dndStart), dndE = mkTime(state.settings.dndEnd);
+  const dnd = document.createElement('div'); dnd.className = 'row-item'; dnd.innerHTML = '<span class="label">勿扰时段</span>';
+  const wr = document.createElement('div'); wr.style.display = 'flex'; wr.style.gap = '6px'; wr.appendChild(dndS); wr.appendChild(dndE); dnd.appendChild(wr);
+  dndS.onchange = ()=>{ state.settings.dndStart = dndS.value; persist(); };
+  dndE.onchange = ()=>{ state.settings.dndEnd = dndE.value; persist(); };
+  c2.appendChild(dnd);
+  const themeSel = mkSelect(['light|浅色','dark|深色'], state.settings.theme);
+  c2.appendChild(labeled('主题', themeSel, v=>{ state.settings.theme = v; applyTheme(); persist(); }));
+  p.appendChild(c2);
+
+  const c3 = document.createElement('div'); c3.className = 'card';
+  c3.appendChild(row('日历闹钟(.ics)', '下载导入', downloadICS));
+  c3.appendChild(row('应用内提醒', (('Notification' in window) && Notification.permission === 'granted') ? '已开启' : '去开启', requestNotify));
+  c3.appendChild(row('数据备份', '导出JSON', exportBackup));
+  const note = document.createElement('div');
+  note.style.cssText = 'font-size:12px;color:var(--sub);padding:10px 2px 4px;line-height:1.5;';
+  note.textContent = '日历闹钟导入后，到点手机响 + 手环振动；任务有变动请重新下载导入。';
+  c3.appendChild(note);
+  p.appendChild(c3);
+
+  const c4 = document.createElement('div'); c4.className = 'card';
+  c4.appendChild(row('完成统计', '查看', ()=>{ showView('stats-view'); renderStats(); }));
+  p.appendChild(c4);
+
+  showView('settings-view');
 }
-function urlBase64ToUint8(b){ const p='='.repeat((4-b.length%4)%4); const s=atob((b+p).replace(/-/g,'+').replace(/_/g,'/')); const u=new Uint8Array(s.length); for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i); return u; }
+function row(label, val, fn){
+  const d = document.createElement('div'); d.className = 'row-item';
+  d.innerHTML = `<span class="label">${label}</span>`;
+  const b = document.createElement('button'); b.className = 'btn-link'; b.textContent = val; b.onclick = fn;
+  d.appendChild(b); return d;
+}
+function mkSelect(opts, val){
+  const s = document.createElement('select');
+  s.style.cssText = 'background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:14px;';
+  for(const o of opts){ const [v,t] = o.split('|'); const op = document.createElement('option'); op.value = v; op.textContent = t; if(v === val) op.selected = true; s.appendChild(op); }
+  return s;
+}
+function mkTime(v){
+  const i = document.createElement('input'); i.type = 'time'; i.value = v;
+  i.style.cssText = 'background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-size:14px;';
+  return i;
+}
+function labeled(label, el, fn){
+  const d = document.createElement('div'); d.className = 'row-item';
+  const l = document.createElement('span'); l.className = 'label'; l.textContent = label;
+  d.appendChild(l); el.onchange = ()=> fn(el.value); d.appendChild(el); return d;
+}
 
-function copyCalendarLink(){
-  if(!state.auth){ toast('请先登录账号'); return; }
-  const url = location.origin + API + '/calendar?token=' + encodeURIComponent(state.auth.token);
-  navigator.clipboard.writeText(url).then(()=> toast('日历订阅链接已复制，粘到手机日历的“添加订阅”即可'), ()=> prompt('复制此链接：', url));
+async function requestNotify(){
+  if(!('Notification' in window)){ toast('当前浏览器不支持通知'); return; }
+  const p = await Notification.requestPermission();
+  toast(p === 'granted' ? '应用内提醒已开启' : '需允许通知');
+  openSettings();
+}
+
+/* ---------- .ics 日历生成（闹钟来源） ---------- */
+function icsStamp(ts){ const d = new Date(ts); return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`; }
+function icsStart(t){
+  if(t.repeat === 'none') return t.dueTs > Date.now() ? t.dueTs : null;
+  return nextDue(t);
+}
+function buildICS(){
+  const lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//daily-todo//ZH','CALSCALE:GREGORIAN'];
+  const offset = state.settings.remind === 'none' ? 0 : Number(state.settings.remind);
+  for(const t of state.tasks){
+    const start = icsStart(t);
+    if(start === null) continue;
+    lines.push('BEGIN:VEVENT');
+    lines.push('UID:' + t.id + '@daily-todo');
+    lines.push('DTSTAMP:' + icsStamp(Date.now()));
+    lines.push('DTSTART:' + icsStamp(start));
+    if(t.repeat === 'day') lines.push('RRULE:FREQ=DAILY');
+    else if(t.repeat === 'week') lines.push('RRULE:FREQ=WEEKLY;BYDAY=' + BYDAY[Number(t.weekday)]);
+    else if(t.repeat === 'month') lines.push('RRULE:FREQ=MONTHLY;BYMONTHDAY=' + Number(t.monthday));
+    lines.push('SUMMARY:' + t.title);
+    lines.push('DESCRIPTION:' + (t.note || '每日工作清单'));
+    lines.push('BEGIN:VALARM');
+    lines.push('ACTION:DISPLAY');
+    lines.push('DESCRIPTION:' + t.title);
+    lines.push('TRIGGER:-PT' + offset + 'M');
+    lines.push('END:VALARM');
+    lines.push('END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+function downloadICS(){
+  const ics = buildICS();
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '每日清单.ics'; a.click();
+  toast('日历文件已生成，导入手机日历即可（iOS 用文件App，安卓用日历导入）');
 }
 function exportBackup(){
-  const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+  const blob = new Blob([JSON.stringify({ tasks: state.tasks, history: state.history, settings: state.settings }, null, 2)], { type:'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '清单备份.json'; a.click();
 }
 
 function renderStats(){
-  const p = $('#stats-panel'); p.innerHTML='';
-  const today = state.history[todayYmd()] || {due:state.tasks.length, done:0};
-  const big = document.createElement('div'); big.className='stat-big';
+  const p = $('#stats-panel'); p.innerHTML = '';
+  const today = state.history[todayYmd()] || { due: state.tasks.length, done: 0 };
+  const big = document.createElement('div'); big.className = 'stat-big';
   big.innerHTML = `<div class="num">${today.done}/${today.due}</div><div class="cap">今日完成　🔥 连续 ${calcStreak()} 天</div>`;
   p.appendChild(big);
-  const card = document.createElement('div'); card.className='card';
+  const card = document.createElement('div'); card.className = 'card';
   card.innerHTML = '<div class="section-title">最近 7 天</div>';
-  const wk = document.createElement('div'); wk.className='week';
+  const wk = document.createElement('div'); wk.className = 'week';
   const now = new Date();
-  for(let i=6;i>=0;i--){ const d=new Date(now); d.setDate(d.getDate()-i); const k=ymd(d.getTime()); const h=state.history[k]; const on = h && h.done>0;
-    wk.innerHTML += `<div class="d${on?' on':''}">${d.getMonth()+1}/${d.getDate()}<b>${h?h.done:'·'}</b></div>`; }
+  for(let i = 6; i >= 0; i--){ const d = new Date(now); d.setDate(d.getDate() - i); const k = ymd(d.getTime()); const h = state.history[k]; const on = h && h.done > 0;
+    wk.innerHTML += `<div class="d${on ? ' on' : ''}">${d.getMonth()+1}/${d.getDate()}<b>${h ? h.done : '·'}</b></div>`; }
   card.appendChild(wk); p.appendChild(card);
 }
 
 /* ---------- 视图切换 ---------- */
 function showView(id){
   for(const v of document.querySelectorAll('.view')) v.classList.add('hidden');
-  $('#'+id).classList.remove('hidden');
+  $('#' + id).classList.remove('hidden');
 }
 
 /* ---------- 杂项 ---------- */
-function applyTheme(){ document.body.classList.toggle('dark', state.settings.theme==='dark'); $('#theme-color').setAttribute('content', state.settings.theme==='dark' ? '#000000' : '#f5f5f7'); }
+function applyTheme(){ document.body.classList.toggle('dark', state.settings.theme === 'dark'); $('#theme-color').setAttribute('content', state.settings.theme === 'dark' ? '#000000' : '#f5f5f7'); }
 let toastTimer;
-function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.remove('hidden'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.add('hidden'), 1800); }
-function save(){ store.set('tasks', state.tasks); store.set('history', state.history); store.set('settings', state.settings); store.set('auth', state.auth); store.set('pushEnabled', state.pushEnabled); }
-function load(){ state.tasks = store.get('tasks', []); state.history = store.get('history', {}); state.settings = Object.assign(state.settings, store.get('settings', {})); state.auth = store.get('auth', null); state.pushEnabled = store.get('pushEnabled', false); }
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(toastTimer); toastTimer = setTimeout(()=> t.classList.add('hidden'), 2200); }
+function persist(){ store.set('tasks', state.tasks); store.set('history', state.history); store.set('settings', state.settings); store.set('session', state.session); }
 
-/* ---------- 本地到点提醒（页面打开时的兜底） ---------- */
+/* ---------- 本地到点提醒（页面打开时的兜底，非系统级） ---------- */
 function localReminderCheck(){
+  if(!('Notification' in window) || Notification.permission !== 'granted') return;
   for(const t of state.tasks){
     if(isDoneToday(t) || !inRemindWindow(t)) continue;
-    if(!t._reminded || t._reminded !== ymd(t.dueTs)){
-      if(Notification.permission === 'granted'){ new Notification('⏰ ' + t.title, { body: '该完成了：' + hhmm(t.dueTs) }); t._reminded = ymd(t.dueTs); }
+    if(t.dueTs <= Date.now() && t._reminded !== ymd(t.dueTs)){
+      new Notification('⏰ ' + t.title, { body: '该完成了：' + hhmm(t.dueTs) });
+      t._reminded = ymd(t.dueTs);
     }
   }
 }
@@ -374,25 +522,27 @@ function inRemindWindow(t){
   const s = state.settings.dndStart.split(':').map(Number), e = state.settings.dndEnd.split(':').map(Number);
   const cur = new Date().getHours()*60 + new Date().getMinutes();
   const ss = s[0]*60+s[1], ee = e[0]*60+e[1];
-  const inDnd = ss>ee ? (cur>=ss||cur<ee) : (cur>=ss&&cur<ee);
+  const inDnd = ss > ee ? (cur >= ss || cur < ee) : (cur >= ss && cur < ee);
   return !inDnd;
 }
 
 /* ---------- 初始化 ---------- */
 function init(){
-  load(); applyTheme(); render();
-  // 事件
+  state.tasks = store.get('tasks', []);
+  state.history = store.get('history', {});
+  state.settings = Object.assign(state.settings, store.get('settings', {}));
+  state.session = store.get('session', null);
+
+  applyTheme(); render();
+
   $('#btn-menu').onclick = openSettings;
   $('#show-done').onclick = ()=>{ state._showDone = !state._showDone; render(); };
   $('#btn-back').onclick = ()=> showView('list-view');
   $('#btn-back2').onclick = ()=> showView('list-view');
-  $('#btn-add').onclick = ()=>{ // 默认自然语言模式：直接弹出，标题框支持自然语言
-    openEditor(null);
-  };
+  $('#btn-add').onclick = ()=> openEditor(null);
   $('#editor-mask').onclick = ()=> $('#editor').classList.add('hidden');
   $('#f-cancel').onclick = ()=> $('#editor').classList.add('hidden');
   $('#f-save').onclick = ()=>{
-    // 自然语言：若标题含时间/重复关键词，解析填充
     const raw = $('#f-title').value;
     if(!editing && /(明天|后天|每天|每日|每周|每月|\d{1,2}[:：]|早上|上午|中午|下午|晚上|早|晚)/.test(raw)){
       const p = parseNatural(raw);
@@ -407,13 +557,11 @@ function init(){
   $('#a-cancel').onclick = ()=> $('#auth').classList.add('hidden');
   $('#a-login').onclick = doAuth;
 
-  // 服务 worker
   if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 
-  // 同步 & 定时
-  if(state.auth) pullSync();
+  if(state.session) pullData();
   setInterval(()=>{ const before = todayYmd(); render(); if(before !== todayYmd()) recordHistory(); localReminderCheck(); }, 30000);
-  // 跨日检查
-  setInterval(()=>{ if(new Date().getHours()===0 && new Date().getMinutes()===0) recordHistory(); }, 60000);
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) pullData(); });
+  setInterval(()=>{ if(state.session) pullData(); }, 20000);
 }
 document.addEventListener('DOMContentLoaded', init);
