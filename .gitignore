@@ -1,0 +1,4 @@
+backend/data.json
+backend/vapid.json
+node_modules/
+*.log
