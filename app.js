@@ -363,8 +363,46 @@ async function doAuth(){
     } else {
       $('#a-msg').textContent = (j.error && j.error.message) || '登录失败';
     }
-  }catch(e){ $('#a-msg').textContent = '网络错误'; }
+  }catch(e){ $('#a-msg').textContent = '网络错误：' + (e && (e.message || e.name) ? (e.message || e.name) : e); console.error(e); }
   finally{ $('#a-login').disabled = false; }
+}
+
+/* ---------- 连接诊断（排查用） ---------- */
+async function diag(){
+  const out = $('#a-diag-out');
+  const lines = [];
+  const stamp = () => new Date().toLocaleTimeString();
+  const test = async (name, fn) => {
+    const t0 = Date.now();
+    try{ const r = await fn(); lines.push(`[${stamp()}] ${name} ✅ ${r}（${Date.now()-t0}ms）`); }
+    catch(e){ lines.push(`[${stamp()}] ${name} ❌ ${e && (e.message||e.name) ? (e.message||e.name) : e}（${Date.now()-t0}ms）`); }
+    out.textContent = lines.join('\n');
+  };
+  out.textContent = '诊断中…';
+  lines.length = 0;
+  lines.push('当前页面来源 Origin: ' + (location.origin || '未知'));
+  lines.push('目标后端: ' + SB_URL);
+  out.textContent = lines.join('\n');
+  await test('REST 读取接口', async () => {
+    const r = await fetch(REST + '/user_data?select=*&limit=1', { headers:{'apikey':SB_ANON} });
+    return 'HTTP ' + r.status;
+  });
+  await test('Auth 登录接口(POST)', async () => {
+    const r = await fetch(AUTH + '/token?grant_type=password', {
+      method:'POST', headers:{'apikey':SB_ANON,'Content-Type':'application/json'},
+      body: JSON.stringify({ email:'diag-probe@example.com', password:'DiagTest123!' })
+    });
+    return 'HTTP ' + r.status;
+  });
+  await test('Auth 注册接口(POST)', async () => {
+    const r = await fetch(AUTH + '/signup', {
+      method:'POST', headers:{'apikey':SB_ANON,'Content-Type':'application/json'},
+      body: JSON.stringify({ email:'diag-probe2@example.com', password:'DiagTest123!' })
+    });
+    return 'HTTP ' + r.status;
+  });
+  lines.push('—— 把上面这段发给我即可定位问题');
+  out.textContent = lines.join('\n');
 }
 function logout(){ state.session = null; persist(); toast('已退出'); openSettings(); }
 
@@ -556,6 +594,7 @@ function init(){
   $('#auth-mask').onclick = ()=> $('#auth').classList.add('hidden');
   $('#a-cancel').onclick = ()=> $('#auth').classList.add('hidden');
   $('#a-login').onclick = doAuth;
+  $('#a-diag').onclick = diag;
 
   if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 
