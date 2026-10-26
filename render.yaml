@@ -8,11 +8,9 @@ services:
     startCommand: node backend/server.js
     healthCheckPath: /
     envVars:
-      - key: DATA_DIR
-        value: /var/data
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
       - key: PORT
         value: 3000
-    disk:
-      name: daily-todo-data
-      mountPath: /var/data
-      sizeGB: 1
