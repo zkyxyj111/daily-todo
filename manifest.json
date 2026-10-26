@@ -1,0 +1,14 @@
+{
+  "name": "每日工作清单",
+  "short_name": "每日清单",
+  "description": "极简每日工作清单，到点到提醒，日/周/月循环，双手机同步。",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f5f7",
+  "theme_color": "#f5f5f7",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
