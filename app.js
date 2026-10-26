@@ -14,6 +14,7 @@ const store = {
 };
 const pad = (n) => String(n).padStart(2,'0');
 const ymd = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
+const cnDate = (s) => { const p = String(s).split('-'); return `${p[0]}年${Number(p[1])}月${Number(p[2])}日`; };
 const todayYmd = () => ymd(Date.now());
 const WEEK = ['周日','周一','周二','周三','周四','周五','周六'];
 const BYDAY = ['SU','MO','TU','WE','TH','FR','SA'];
@@ -131,8 +132,8 @@ function taskEl(t, isDone){
   const right = document.createElement('div'); right.className = 'right';
   if(t.priority && t.priority !== 'none'){ const p = document.createElement('span'); p.className = 'pri ' + t.priority; right.appendChild(p); }
   const time = document.createElement('span');
-  time.className = 'time' + (over ? ' over' : '');
-  time.textContent = isDone ? '已完成' : (over ? '逾期 ' + hhmm(t.dueTs) : hhmm(t.dueTs));
+  time.className = 'time' + (isDone ? ' done-cn' : (over ? ' over' : ''));
+  time.textContent = isDone ? ('完成于 ' + cnDate(t.doneDate)) : (over ? '逾期 ' + hhmm(t.dueTs) : hhmm(t.dueTs));
   right.appendChild(time);
   if(t.repeat !== 'none'){ const tag = document.createElement('span'); tag.className = 'tag ' + t.repeat; tag.textContent = repeatLabel(t); right.appendChild(tag); }
   li.appendChild(check); li.appendChild(body); li.appendChild(right);
