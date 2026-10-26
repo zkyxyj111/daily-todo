@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: daily-todo
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm install
+    startCommand: node backend/server.js
+    healthCheckPath: /
+    envVars:
+      - key: DATA_DIR
+        value: /var/data
+      - key: PORT
+        value: 3000
+    disk:
+      name: daily-todo-data
+      mountPath: /var/data
+      sizeGB: 1
