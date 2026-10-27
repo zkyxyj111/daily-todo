@@ -1,5 +1,5 @@
 /* Service Worker：离线缓存；代码类资源(js/css/html)走“网络优先”，保证改代码后即时生效 */
-const CACHE = 'todo-v3';
+const CACHE = 'todo-v4';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', (e) => {
