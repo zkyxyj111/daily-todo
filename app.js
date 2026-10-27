@@ -497,25 +497,28 @@ function icsStart(t){
   if(t.repeat === 'none') return t.dueTs > Date.now() ? t.dueTs : null;
   return nextDue(t);
 }
+function icsEscape(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n'); }
 function buildICS(){
   const lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//daily-todo//ZH','CALSCALE:GREGORIAN'];
   const offset = state.settings.remind === 'none' ? 0 : Number(state.settings.remind);
   for(const t of state.tasks){
     const start = icsStart(t);
     if(start === null) continue;
+    const end = start + 60*60*1000; // 事件时长 1 小时（安卓要求必须有 DTEND）
     lines.push('BEGIN:VEVENT');
     lines.push('UID:' + t.id + '@daily-todo');
     lines.push('DTSTAMP:' + icsStamp(Date.now()));
     lines.push('DTSTART:' + icsStamp(start));
+    lines.push('DTEND:' + icsStamp(end));
     if(t.repeat === 'day') lines.push('RRULE:FREQ=DAILY');
     else if(t.repeat === 'week') lines.push('RRULE:FREQ=WEEKLY;BYDAY=' + BYDAY[Number(t.weekday)]);
     else if(t.repeat === 'month') lines.push('RRULE:FREQ=MONTHLY;BYMONTHDAY=' + Number(t.monthday));
-    lines.push('SUMMARY:' + t.title);
-    lines.push('DESCRIPTION:' + (t.note || '每日工作清单'));
+    lines.push('SUMMARY:' + icsEscape(t.title));
+    lines.push('DESCRIPTION:' + icsEscape(t.note || '每日工作清单'));
     lines.push('BEGIN:VALARM');
     lines.push('ACTION:DISPLAY');
-    lines.push('DESCRIPTION:' + t.title);
-    lines.push('TRIGGER:-PT' + offset + 'M');
+    lines.push('DESCRIPTION:' + icsEscape(t.title));
+    lines.push('TRIGGER:-PT' + Math.max(offset,0) + 'M');
     lines.push('END:VALARM');
     lines.push('END:VEVENT');
   }
