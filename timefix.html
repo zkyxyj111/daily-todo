@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>调整任务时间</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:#f5f5f7;color:#1c1c1e;max-width:480px;margin:0 auto;padding:24px 16px;}
+  h2{font-size:20px;margin-bottom:8px;}
+  .hint{font-size:14px;color:#8e8e93;line-height:1.6;margin-bottom:18px;}
+  #go{width:100%;background:#007AFF;color:#fff;border:none;border-radius:14px;padding:15px;font-size:16px;font-weight:600;cursor:pointer;}
+  #out{margin-top:16px;background:#fff;border-radius:14px;padding:14px;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-all;box-shadow:0 1px 2px rgba(0,0,0,.05);min-height:40px;}
+</style>
+</head>
+<body>
+<h2>批量调整任务时间</h2>
+<p class="hint">把清单里所有「09:00」的任务统一改为「12:00」（一次性任务和循环任务下次到期都会改）。在<strong>已登录</strong>的浏览器打开，点一下即可，自动同步到另一部手机。可重复点击，已是 12:00 的会自动跳过。</p>
+<button id="go">全部 09:00 → 12:00</button>
+<pre id="out">点击上方按钮开始…</pre>
+<script>
+'use strict';
+const SB_URL='https://sjefpfgprwruiarifdnn.supabase.co';
+const SB_ANON='sb_publishable_0CSTCrFS9bUP5kTmyTZ4Dw_zsUzG95x';
+const REST=SB_URL+'/rest/v1';
+const AUTH=SB_URL+'/auth/v1';
+
+function shift(t){
+  const d=new Date(t.dueTs);
+  if(d.getHours()===9 && d.getMinutes()===0){
+    d.setHours(12,0,0,0);
+    t.dueTs=d.getTime();
+    if(typeof t.time==='string') t.time='12:00';
+    return true;
+  }
+  return false;
+}
+
+const out=document.getElementById('out');
+function log(s){ out.textContent+=s+'\n'; }
+
+async function refresh(sess){
+  const r=await fetch(AUTH+'/token?grant_type=refresh_token',{
+    method:'POST',headers:{'apikey':SB_ANON,'Content-Type':'application/json'},
+    body:JSON.stringify({refresh_token:sess.refresh_token})});
+  const j=await r.json();
+  if(j.access_token){ sess.access_token=j.access_token; if(j.refresh_token) sess.refresh_token=j.refresh_token; localStorage.setItem('session',JSON.stringify(sess)); }
+  return sess;
+}
+
+document.getElementById('go').onclick=async()=>{
+  out.textContent='调整中…\n';
+  try{
+    let sess=null; try{ sess=JSON.parse(localStorage.getItem('session')||'null'); }catch(e){}
+    let base=JSON.parse(localStorage.getItem('tasks')||'[]');
+    let history=JSON.parse(localStorage.getItem('history')||'{}');
+    let H=null;
+
+    if(sess&&sess.access_token){
+      H={'apikey':SB_ANON,'Authorization':'Bearer '+sess.access_token,'Content-Type':'application/json'};
+      let r=await fetch(REST+'/user_data?select=*&user_id=eq.'+encodeURIComponent(sess.user_id),{headers:H});
+      if(r.status===401&&sess.refresh_token){ sess=await refresh(sess); H={'apikey':SB_ANON,'Authorization':'Bearer '+sess.access_token,'Content-Type':'application/json'}; r=await fetch(REST+'/user_data?select=*&user_id=eq.'+encodeURIComponent(sess.user_id),{headers:H}); }
+      const rows=await r.json();
+      if(Array.isArray(rows)&&rows[0]){
+        if(Array.isArray(rows[0].tasks)) base=rows[0].tasks;
+        if(rows[0].history) history=rows[0].history;
+      }
+    }
+
+    let cnt=0;
+    for(const t of base){ if(shift(t)){ cnt++; log('已改 12:00：'+t.title); } }
+    if(cnt===0) log('没有需要调整的（已都是 12:00 或本机暂无任务）');
+
+    localStorage.setItem('tasks',JSON.stringify(base));
+
+    if(sess&&sess.access_token){
+      const body=JSON.stringify({user_id:sess.user_id, tasks:base,
+        history:history, updated_at:new Date().toISOString()});
+      const r=await fetch(REST+'/user_data?on_conflict=user_id',{method:'POST',
+        headers:Object.assign(H,{'Prefer':'resolution=merge-duplicates'}), body});
+      log('云同步：HTTP '+r.status+(r.status===201||r.status===200?' ✅':' ❌'));
+      log('完成！共调整 '+cnt+' 条。回到清单页刷新即可看到，另一部手机会同步。');
+    }else{
+      log('完成！已写入本机（当前未登录云账号）。登录后再点一次即可同步到云端。');
+    }
+  }catch(e){ log('出错：'+(e&&e.message?e.message:e)); }
+};
+</script>
+</body>
+</html>
