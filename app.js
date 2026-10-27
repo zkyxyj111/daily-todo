@@ -524,19 +524,20 @@ function buildICS(){
 }
 function downloadICS(){
   const ics = buildICS();
-  const file = new File([ics], '每日清单.ics', { type: 'text/calendar' });
-  // iOS Safari / 现代浏览器：用系统分享直接选「日历」导入（Safari 不支持 a.download 下载）
-  if(navigator.canShare && navigator.canShare({ files: [file] })){
+  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  // iOS Safari 不支持下载，用系统分享选「日历」
+  if(isIOS && navigator.canShare && navigator.canShare({ files: [new File([ics], '每日清单.ics', { type: 'text/calendar' })] })){
+    const file = new File([ics], '每日清单.ics', { type: 'text/calendar' });
     navigator.share({ files: [file], title: '每日清单' })
       .then(()=> toast('在分享面板里选「日历」即可完成导入'))
       .catch(()=> {});
     return;
   }
-  // 兜底：安卓 / 桌面走普通下载
+  // 安卓 / 桌面：直接下载文件（点一下就有反应）
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
   a.download = '每日清单.ics'; document.body.appendChild(a); a.click(); a.remove();
-  toast('日历文件已生成：iOS 用「文件」App 打开并导入日历，安卓用日历导入');
+  toast('已下载「每日清单.ics」：打开下载/通知栏里的文件 → 用「日历」导入');
 }
 function exportBackup(){
   const blob = new Blob([JSON.stringify({ tasks: state.tasks, history: state.history, settings: state.settings }, null, 2)], { type:'application/json' });
