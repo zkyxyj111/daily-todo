@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>批量导入任务</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:#f5f5f7;color:#1c1c1e;max-width:480px;margin:0 auto;padding:24px 16px;}
+  h2{font-size:20px;margin-bottom:8px;}
+  .hint{font-size:14px;color:#8e8e93;line-height:1.6;margin-bottom:18px;}
+  #go{width:100%;background:#007AFF;color:#fff;border:none;border-radius:14px;padding:15px;font-size:16px;font-weight:600;cursor:pointer;}
+  #out{margin-top:16px;background:#fff;border-radius:14px;padding:14px;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-all;box-shadow:0 1px 2px rgba(0,0,0,.05);min-height:40px;}
+</style>
+</head>
+<body>
+<h2>批量导入任务</h2>
+<p class="hint">把「工作」清单截图里的 9 条任务导入你的每日清单（同名任务自动跳过，可重复点击）。导入后回到清单页刷新即可看到，并自动同步到另一部手机。</p>
+<button id="go">一键导入 9 条任务</button>
+<pre id="out">点击上方按钮开始…</pre>
+<script>
+'use strict';
+const SB_URL='https://sjefpfgprwruiarifdnn.supabase.co';
+const SB_ANON='sb_publishable_0CSTCrFS9bUP5kTmyTZ4Dw_zsUzG95x';
+const REST=SB_URL+'/rest/v1';
+const AUTH=SB_URL+'/auth/v1';
+const pad=n=>String(n).padStart(2,'0');
+
+/* 截图里的 9 条任务（无具体时刻的默认 09:00；「等通知报」暂定 12/31，可在 App 里改） */
+const NEW=[
+ {title:'17个典型案例学习记名式传达和学习体会', y:2026,m:10,d:30,hh:16,mm:0,repeat:'none'},
+ {title:'执法工作提示学习情况',                 y:2026,m:10,d:31,hh:9, mm:0,repeat:'week'},
+ {title:'高级执法资格考试培训参训统计表',       y:2026,m:11,d:4, hh:9, mm:0,repeat:'none'},
+ {title:'统计高级报名人数',                     y:2026,m:11,d:4, hh:9, mm:0,repeat:'none'},
+ {title:'扫黑',                                 y:2026,m:11,d:15,hh:9, mm:0,repeat:'month'},
+ {title:'执法情况自查',                         y:2026,m:11,d:25,hh:9, mm:0,repeat:'month'},
+ {title:'铁鹰工作写实',                         y:2026,m:11,d:25,hh:9, mm:0,repeat:'month'},
+ {title:'插手办案情况统计表',                   y:2026,m:11,d:25,hh:9, mm:0,repeat:'month'},
+ {title:'突出执法问题专项整治工作方案',         y:2026,m:12,d:31,hh:9, mm:0,repeat:'none',note:'等通知报（截止日期暂定，收到通知后请修改）'},
+];
+
+function mkTask(t){
+  const due=new Date(t.y,t.m-1,t.d,t.hh,t.mm,0,0).getTime();
+  return {
+    id:'t'+Date.now()+Math.random().toString(36).slice(2,6),
+    title:t.title, time:pad(t.hh)+':'+pad(t.mm), repeat:t.repeat,
+    priority:'none',
+    weekday:String(new Date(t.y,t.m-1,t.d).getDay()),
+    monthday:String(t.d),
+    note:t.note||'', dueTs:due, doneDate:null, lastDoneTs:null, createdAt:Date.now()
+  };
+}
+
+const out=document.getElementById('out');
+function log(s){ out.textContent+=s+'\n'; }
+
+async function refresh(sess){
+  const r=await fetch(AUTH+'/token?grant_type=refresh_token',{
+    method:'POST',headers:{'apikey':SB_ANON,'Content-Type':'application/json'},
+    body:JSON.stringify({refresh_token:sess.refresh_token})});
+  const j=await r.json();
+  if(j.access_token){ sess.access_token=j.access_token; if(j.refresh_token) sess.refresh_token=j.refresh_token; localStorage.setItem('session',JSON.stringify(sess)); }
+  return sess;
+}
+
+document.getElementById('go').onclick=async()=>{
+  out.textContent='导入中…\n';
+  try{
+    let sess=null; try{ sess=JSON.parse(localStorage.getItem('session')||'null'); }catch(e){}
+    let base=JSON.parse(localStorage.getItem('tasks')||'[]');
+    let H=null;
+
+    if(sess&&sess.access_token){
+      H={'apikey':SB_ANON,'Authorization':'Bearer '+sess.access_token,'Content-Type':'application/json'};
+      let r=await fetch(REST+'/user_data?select=*&user_id=eq.'+encodeURIComponent(sess.user_id),{headers:H});
+      if(r.status===401&&sess.refresh_token){ sess=await refresh(sess); H={'apikey':SB_ANON,'Authorization':'Bearer '+sess.access_token,'Content-Type':'application/json'}; r=await fetch(REST+'/user_data?select=*&user_id=eq.'+encodeURIComponent(sess.user_id),{headers:H}); }
+      const rows=await r.json();
+      if(Array.isArray(rows)&&rows[0]&&Array.isArray(rows[0].tasks)&&rows[0].tasks.length>=base.length) base=rows[0].tasks;
+    }
+
+    const exist=new Set(base.map(t=>t.title));
+    let added=0;
+    for(const t of NEW){
+      if(exist.has(t.title)){ log('跳过（已存在）：'+t.title); continue; }
+      base.push(mkTask(t)); added++; log('已加入：'+t.title);
+    }
+
+    localStorage.setItem('tasks',JSON.stringify(base));
+
+    if(sess&&sess.access_token){
+      const body=JSON.stringify({user_id:sess.user_id, tasks:base,
+        history:JSON.parse(localStorage.getItem('history')||'{}'),
+        updated_at:new Date().toISOString()});
+      const r=await fetch(REST+'/user_data?on_conflict=user_id',{method:'POST',
+        headers:Object.assign(H,{'Prefer':'resolution=merge-duplicates'}), body});
+      log('云同步：HTTP '+r.status+(r.status===201||r.status===200?' ✅':' ❌'));
+      log('完成！两部手机刷新清单页即可看到。');
+    }else{
+      log('完成！已写入本机（当前未登录云账号）。登录后再点一次本按钮即可同步到云端。');
+    }
+  }catch(e){ log('出错：'+(e&&e.message?e.message:e)); }
+};
+</script>
+</body>
+</html>
