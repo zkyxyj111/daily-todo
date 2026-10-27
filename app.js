@@ -136,7 +136,10 @@ function taskEl(t, isDone){
   time.textContent = isDone ? ('完成于 ' + cnDate(t.doneDate)) : (over ? '逾期 ' + hhmm(t.dueTs) : hhmm(t.dueTs));
   right.appendChild(time);
   if(t.repeat !== 'none'){ const tag = document.createElement('span'); tag.className = 'tag ' + t.repeat; tag.textContent = repeatLabel(t); right.appendChild(tag); }
-  li.appendChild(check); li.appendChild(body); li.appendChild(right);
+  const del = document.createElement('button');
+  del.className = 'del'; del.textContent = '✕'; del.title = '删除任务';
+  del.onclick = (e)=>{ e.stopPropagation(); deleteTask(t); };
+  li.appendChild(check); li.appendChild(body); li.appendChild(right); li.appendChild(del);
   li.onclick = ()=> openEditor(t);
   return li;
 }
@@ -217,8 +220,13 @@ function saveEditor(){
   recordHistory(); persist(); render(); scheduleSave();
   $('#editor').classList.add('hidden');
 }
+function deleteTask(t){
+  if(!confirm('确定删除「' + (t.title || '该任务') + '」？')) return;
+  state.tasks = state.tasks.filter(x => x !== t);
+  recordHistory(); persist(); render(); scheduleSave();
+}
 function deleteEditing(){
-  if(editing){ state.tasks = state.tasks.filter(t => t !== editing); recordHistory(); persist(); render(); scheduleSave(); }
+  if(editing) deleteTask(editing);
   $('#editor').classList.add('hidden');
 }
 
