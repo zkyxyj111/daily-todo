@@ -26,6 +26,7 @@ function whenLabel(t){
 const todayYmd = () => ymd(Date.now());
 const WEEK = ['周日','周一','周二','周三','周四','周五','周六'];
 const BYDAY = ['SU','MO','TU','WE','TH','FR','SA'];
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 let state = {
   tasks: [],
@@ -498,36 +499,66 @@ function icsStart(t){
   return nextDue(t);
 }
 function icsEscape(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n'); }
+function addInterval(t, ts){
+  const d = new Date(ts);
+  if(t.repeat === 'day'){ d.setDate(d.getDate()+1); return d.getTime(); }
+  if(t.repeat === 'week'){ d.setDate(d.getDate()+7); return d.getTime(); }
+  if(t.repeat === 'month'){ const day = Number(t.monthday) || d.getDate(); d.setDate(1); d.setMonth(d.getMonth()+1); d.setDate(Math.min(day, lastDayOfMonth(d.getFullYear(), d.getMonth()))); return d.getTime(); }
+  return ts;
+}
+function icsEventLines(t, start){
+  const end = start + 60*60*1000; // 事件时长 1 小时（安卓要求必须有 DTEND）
+  const offset = state.settings.remind === 'none' ? 0 : Number(state.settings.remind);
+  return [
+    'UID:' + t.id + '-' + icsStamp(start) + '@daily-todo',
+    'DTSTAMP:' + icsStamp(Date.now()),
+    'DTSTART:' + icsStamp(start),
+    'DTEND:' + icsStamp(end),
+    'SUMMARY:' + icsEscape(t.title),
+    'DESCRIPTION:' + icsEscape(t.note || '每日工作清单'),
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    'DESCRIPTION:' + icsEscape(t.title),
+    'TRIGGER:-PT' + Math.max(offset,0) + 'M',
+    'END:VALARM'
+  ];
+}
 function buildICS(){
   const lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//daily-todo//ZH','CALSCALE:GREGORIAN'];
-  const offset = state.settings.remind === 'none' ? 0 : Number(state.settings.remind);
-  for(const t of state.tasks){
-    const start = icsStart(t);
-    if(start === null) continue;
-    const end = start + 60*60*1000; // 事件时长 1 小时（安卓要求必须有 DTEND）
-    lines.push('BEGIN:VEVENT');
-    lines.push('UID:' + t.id + '@daily-todo');
-    lines.push('DTSTAMP:' + icsStamp(Date.now()));
-    lines.push('DTSTART:' + icsStamp(start));
-    lines.push('DTEND:' + icsStamp(end));
-    if(t.repeat === 'day') lines.push('RRULE:FREQ=DAILY');
-    else if(t.repeat === 'week') lines.push('RRULE:FREQ=WEEKLY;BYDAY=' + BYDAY[Number(t.weekday)]);
-    else if(t.repeat === 'month') lines.push('RRULE:FREQ=MONTHLY;BYMONTHDAY=' + Number(t.monthday));
-    lines.push('SUMMARY:' + icsEscape(t.title));
-    lines.push('DESCRIPTION:' + icsEscape(t.note || '每日工作清单'));
-    lines.push('BEGIN:VALARM');
-    lines.push('ACTION:DISPLAY');
-    lines.push('DESCRIPTION:' + icsEscape(t.title));
-    lines.push('TRIGGER:-PT' + Math.max(offset,0) + 'M');
-    lines.push('END:VALARM');
-    lines.push('END:VEVENT');
+  if(isIOS){
+    // iOS 日历对 RRULE 支持好，保留循环规则
+    for(const t of state.tasks){
+      const start = icsStart(t);
+      if(start === null) continue;
+      lines.push('BEGIN:VEVENT');
+      lines.push(...icsEventLines(t, start));
+      if(t.repeat === 'day') lines.push('RRULE:FREQ=DAILY');
+      else if(t.repeat === 'week') lines.push('RRULE:FREQ=WEEKLY;BYDAY=' + BYDAY[Number(t.weekday)]);
+      else if(t.repeat === 'month') lines.push('RRULE:FREQ=MONTHLY;BYMONTHDAY=' + Number(t.monthday));
+      lines.push('END:VEVENT');
+    }
+  } else {
+    // 安卓/桌面：循环任务展开成独立事件（避免 RRULE 在安卓导入失败）
+    for(const t of state.tasks){
+      let occs = [];
+      if(t.repeat === 'none'){ if(t.dueTs > Date.now()) occs = [t.dueTs]; }
+      else {
+        const limitMs = (t.repeat==='day' ? 90 : t.repeat==='month' ? 400 : 120) * 86400000;
+        let cur = nextDue(t), guard = 0;
+        while(cur && cur < Date.now()+limitMs && guard < 500){ occs.push(cur); cur = addInterval(t, cur); guard++; }
+      }
+      for(const start of occs){
+        lines.push('BEGIN:VEVENT');
+        lines.push(...icsEventLines(t, start));
+        lines.push('END:VEVENT');
+      }
+    }
   }
   lines.push('END:VCALENDAR');
   return lines.join('\r\n');
 }
 function downloadICS(){
   const ics = buildICS();
-  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   // iOS Safari 不支持下载，用系统分享选「日历」
   if(isIOS && navigator.canShare && navigator.canShare({ files: [new File([ics], '每日清单.ics', { type: 'text/calendar' })] })){
     const file = new File([ics], '每日清单.ics', { type: 'text/calendar' });
