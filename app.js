@@ -559,19 +559,17 @@ function buildICS(){
 }
 function downloadICS(){
   const ics = buildICS();
-  // iOS Safari 不支持下载，用系统分享选「日历」
-  if(isIOS && navigator.canShare && navigator.canShare({ files: [new File([ics], '每日清单.ics', { type: 'text/calendar' })] })){
-    const file = new File([ics], '每日清单.ics', { type: 'text/calendar' });
-    navigator.share({ files: [file], title: '每日清单' })
-      .then(()=> toast('在分享面板里选「日历」即可完成导入'))
-      .catch(()=> {});
-    return;
-  }
-  // 安卓 / 桌面：直接下载文件（点一下就有反应）
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
-  a.download = '每日清单.ics'; document.body.appendChild(a); a.click(); a.remove();
-  toast('已下载「每日清单.ics」：打开下载/通知栏里的文件 → 用「日历」导入');
+  a.href = URL.createObjectURL(blob);
+  a.download = '每日清单.ics';
+  document.body.appendChild(a); a.click(); a.remove();
+  if(isIOS){
+    // iOS Safari 直接打开 .ics 会弹出「添加到日历」；若没弹，用文件App兜底
+    toast('iOS：Safari 应弹出「添加到日历」请确认；若没弹，点「分享→文件」保存后，到「文件」App 里点开 .ics 选添加全部到日历');
+  } else {
+    toast('已下载「每日清单.ics」：打开下载/通知栏里的文件 → 用「日历」导入');
+  }
 }
 function exportBackup(){
   const blob = new Blob([JSON.stringify({ tasks: state.tasks, history: state.history, settings: state.settings }, null, 2)], { type:'application/json' });
