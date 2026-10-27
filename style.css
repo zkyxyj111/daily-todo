@@ -50,6 +50,11 @@ body{
 .right{display:flex;align-items:center;flex:0 0 auto;}
 .item.over{box-shadow:0 0 0 1px #ffd9d6, var(--shadow);}
 .done-area .item{opacity:.85;}
+.del{
+  width:26px;height:26px;border:none;background:none;color:var(--sub);font-size:15px;
+  flex:0 0 auto;margin-left:6px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;
+}
+.del:active{color:var(--red);background:#ffd9d6;}
 
 .show-done{text-align:center;font-size:13px;color:var(--sub);padding:12px 0 2px;cursor:pointer;}
 .add-btn{
