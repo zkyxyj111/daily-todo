@@ -19,9 +19,9 @@ function whenLabel(t){
   if(isDoneToday(t)) return '完成于 ' + cnDate(t.doneDate);
   const d = new Date(t.dueTs); const now = new Date();
   const sameDay = d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth() && d.getDate()===now.getDate();
-  if(t.dueTs <= Date.now()) return '逾期 ' + hhmm(t.dueTs);
-  if(sameDay) return hhmm(t.dueTs);
-  return (d.getMonth()+1) + '月' + d.getDate() + '日 ' + hhmm(t.dueTs);
+  const f = d.getFullYear() + '/' + (d.getMonth()+1) + '/' + d.getDate() + ' ' + hhmm(t.dueTs);
+  if(t.dueTs <= Date.now()) return '逾期 ' + f;
+  return sameDay ? hhmm(t.dueTs) : f;
 }
 const todayYmd = () => ymd(Date.now());
 const WEEK = ['周日','周一','周二','周三','周四','周五','周六'];
